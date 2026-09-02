@@ -1,0 +1,34 @@
+# Kernel source tree — cloned separately, far too large to track,
+# and is itself a git repo (avoid nested-repo issues entirely).
+/linux/
+
+# Kernel build artifacts, if anything ever ends up outside /linux/
+*.ko
+*.o
+*.cmd
+*.mod
+*.mod.c
+*.symvers
+*.order
+bzImage
+vmlinux
+vmlinux.o
+System.map
+Module.symvers
+
+# QEMU disk images / rootfs (large binary blobs, not source)
+*.img
+*.qcow2
+
+# syzkaller — also cloned separately, also its own repo
+/syzkaller/
+
+# Nix
+# (flake.lock IS committed intentionally — do not ignore it)
+result
+result-*
+
+# Editor/OS cruft
+.DS_Store
+*.swp
+*~
