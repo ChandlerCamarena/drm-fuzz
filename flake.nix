@@ -25,6 +25,7 @@
             perl
             python3
             ncurses
+            debootstrap
 
             # Kernel config helper depends on these
             pkg-config
