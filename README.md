@@ -92,7 +92,8 @@ drm-fuzz/
 ├── scripts/
 │ ├── kernel.config # This project's config additions (fragment)
 │ ├── setup.sh # Clones pinned kernel, applies config
-│ └── build.sh # Builds the configured kernel
+│ ├── build.sh # Builds the configured kernel
+│ └── patch-rootfs.sh # Applies required fixes to syzkaller's rootfs image
 ├── linux/ # Reproduced by setup.sh — not tracked
 └── syzkaller/ # Cloned/built separately — not tracked
 
@@ -138,6 +139,59 @@ a known artifact of the tooling, not a silent, unexplained anomaly.
 
 ---
 
+## Booting the kernel in QEMU
+
+After `syzkaller/tools/create-image.sh` produces `trixie.img`, apply the
+required rootfs patches (see below) and boot with:
+
+```bash
+qemu-system-x86_64 \
+  -kernel linux/arch/x86/boot/bzImage \
+  -drive file=syzkaller/tools/trixie.img,format=raw \
+  -append "console=ttyS0 root=/dev/sda earlyprintk=serial net.ifnames=0 selinux=0" \
+  -netdev user,id=net0,hostfwd=tcp::10021-:22 \
+  -device e1000,netdev=net0 \
+  -nographic \
+  -m 2G \
+  -smp 2 \
+  -enable-kvm
+```
+
+SSH into the running guest via the forwarded port:
+
+```bash
+ssh -i syzkaller/tools/trixie.id_rsa -p 10021 root@localhost
+```
+
+### Required rootfs patch
+
+`syzkaller/tools/create-image.sh` builds a rootfs with defaults that
+don't match this project's minimal kernel config. Run once, after every
+fresh `create-image.sh`:
+
+```bash
+bash scripts/patch-rootfs.sh
+```
+
+This applies three fixes:
+1. **Removes the `configfs` fstab entry.** The kernel isn't built with
+   `CONFIG_CONFIGFS_FS` (unused subsystem for this project — USB gadget
+   mode, some netfilter targets); without this, boot fails into
+   emergency mode via a `local-fs.target` dependency cascade.
+2. **Disables SELinux** (`/etc/selinux/config`). Not needed for a
+   fuzzing target and reduces log noise around crash triage. Paired with
+   `selinux=0` on the kernel command line above.
+3. **Symlinks `ssh.service` into `multi-user.target.wants`.**
+   `create-image.sh` doesn't enable it by default; syzkaller's manager
+   drives the guest over SSH.
+
+`CONFIG_SECURITYFS=y` is set directly in `scripts/kernel.config` rather
+than patched out of the rootfs, since securityfs is exposed to
+security-relevant kernel state (LSM/IMA-adjacent interfaces) that's worth
+keeping present for this class of research, unlike configfs.
+
+---
+
 ## Operational safety
 
 VKMS fuzzing is inherently contained — it runs entirely inside the QEMU
@@ -171,7 +225,7 @@ after an incident.
 - [x] Kernel pinned to `v7.2`; KASAN, KCOV, DRM_VKMS, DRM_I915 configured
       and verified via automated script, not manual steps
 - [x] Kernel builds successfully under this configuration
-- [ ] QEMU boot + minimal rootfs
+- [x] QEMU boot + minimal rootfs
 - [ ] syzkaller operational against VKMS in-VM
 - [ ] Sanity validation: deliberately introduced bug caught end-to-end
       (syzkaller → KCOV → KASAN → symbolized report)
