@@ -85,6 +85,7 @@ an oversight discovered later.
 
 ## Repository layout
 
+```text
 drm-fuzz/
 ├── flake.nix                  # Reproducible environment definition
 ├── flake.lock                 # Exact pinned versions of all Nix inputs
@@ -100,6 +101,7 @@ drm-fuzz/
 ├── linux/                  # Reproduced by setup.sh — not tracked
 ├── syzkaller/              # Cloned/built separately — not tracked
 └── workdir/                # syz-manager output: corpus, crashes, VM state — not tracked
+```
 
 The kernel source, syzkaller, and the fuzzing workdir are intentionally
 excluded from version control. The kernel and syzkaller are large,
