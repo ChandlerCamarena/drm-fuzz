@@ -22,7 +22,7 @@ an instrumented kernel (KASAN for detection, KCOV for coverage-guided
 fuzzing feedback), syzkaller as the fuzzing engine, and a staged target
 progression — from VKMS (a safe, in-tree virtual driver built for exactly
 this kind of testing) to i915 (this machine's real Intel integrated GPU
-driver), with Nouveau as a stretch target. Every finding is triaged,
+driver), with Nouveau as a stretch target. Findings are triaged,
 root-caused, and — where real — disclosed responsibly before any public
 detail is published.
 
@@ -86,23 +86,36 @@ an oversight discovered later.
 ## Repository layout
 
 drm-fuzz/
-├── flake.nix # Reproducible environment definition
-├── flake.lock # Exact pinned versions of all Nix inputs
-├── .gitignore # Excludes kernel/syzkaller trees, build output
+├── flake.nix                  # Reproducible environment definition
+├── flake.lock                 # Exact pinned versions of all Nix inputs
+├── install.sh                 # Top-level orchestrator: setup -> build -> build-rootfs
+├── syzkaller-config-vkms.cfg  # syz-manager config for the VKMS target
+├── README.md
 ├── scripts/
-│ ├── kernel.config # This project's config additions (fragment)
-│ ├── setup.sh # Clones pinned kernel, applies config
-│ ├── build.sh # Builds the configured kernel
-│ └── patch-rootfs.sh # Applies required fixes to syzkaller's rootfs image
-├── linux/ # Reproduced by setup.sh — not tracked
-└── syzkaller/ # Cloned/built separately — not tracked
+│   ├── setup.sh            # Clones pinned kernel, applies config
+│   ├── build.sh            # Builds the configured kernel
+│   ├── build-rootfs.sh     # Orchestrates full rootfs build unattended
+│   ├── patch-rootfs.sh     # Applies required fixes to syzkaller's rootfs image
+│   └── kernel.config       # This project's config additions (fragment)
+├── linux/                  # Reproduced by setup.sh — not tracked
+├── syzkaller/              # Cloned/built separately — not tracked
+└── workdir/                # syz-manager output: corpus, crashes, VM state — not tracked
 
-The kernel source and syzkaller are intentionally excluded from version
-control. Both are large, independently-versioned repositories in their own
-right; tracking them directly would bloat this repository indefinitely and
-create nested-repository ambiguity for no benefit. Instead, the scripts
-that *reconstruct* them exactly are what's tracked — the reproducibility
-guarantee lives in code, not in a committed binary artifact.
+The kernel source, syzkaller, and the fuzzing workdir are intentionally
+excluded from version control. The kernel and syzkaller are large,
+independently-versioned repositories in their own right; tracking them
+directly would bloat this repository indefinitely and create
+nested-repository ambiguity for no benefit. The workdir is pure generated
+output — corpus, crash logs, VM disk state — that changes on every run and
+carries no value as a tracked artifact. Instead, the scripts that
+*reconstruct* the toolchain exactly are what's tracked — the
+reproducibility guarantee lives in code, not in a committed binary
+artifact.
+
+`syzkaller-config-vkms.cfg` is tracked: it is small, hand-written, and is
+the actual specification of how the fuzzer is invoked (VM count, memory,
+target syscalls, image/kernel paths). Note that its path fields are
+machine-specific and will need adjusting to your own checkout location.
 
 ---
 
@@ -128,6 +141,7 @@ bash scripts/build.sh
 ### A known, non-fatal warning
 
 The clone step prints:
+
 warning: refs/tags/v7.2 <hash> is not a commit!
 
 Expected: `v7.2` is an *annotated* tag, and Git's shallow-fetch path
@@ -192,6 +206,19 @@ keeping present for this class of research, unlike configfs.
 
 ---
 
+## Running the fuzzer
+
+```bash
+./syzkaller/bin/syz-manager -config=syzkaller-config-vkms.cfg
+```
+
+Do **not** add `-debug` for a real fuzzing run: debug mode silently caps
+VM count to 1 regardless of the config's `vm.count` value. The web UI
+(address/port set in the config) shows live corpus size, coverage, crash
+counts, and per-VM status while the manager runs.
+
+---
+
 ## Operational safety
 
 VKMS fuzzing is inherently contained — it runs entirely inside the QEMU
@@ -226,14 +253,35 @@ after an incident.
       and verified via automated script, not manual steps
 - [x] Kernel builds successfully under this configuration
 - [x] QEMU boot + minimal rootfs
-- [ ] syzkaller operational against VKMS in-VM
-- [ ] Sanity validation: deliberately introduced bug caught end-to-end
-      (syzkaller → KCOV → KASAN → symbolized report)
-- [ ] Extend DRM syscall descriptions for VKMS coverage gaps
-- [ ] Real fuzzing campaign against VKMS; triage and root-cause findings
+- [x] syzkaller operational against VKMS: 4-VM parallel fuzzing,
+      corpus/coverage growing, crashes captured
+- [ ] Crash triage: root-cause each distinct crash type found so far
+      (not yet started — toolchain validation was the priority for this
+      milestone)
+- [ ] Coverage-vs-source cross-reference: confirm fuzzing is exercising
+      VKMS-specific code paths, not just generic DRM ioctl dispatch
+- [ ] Extend DRM syscall descriptions for VKMS coverage gaps, if the
+      cross-reference above surfaces any
 - [ ] Pivot to i915 (real hardware; see Operational Safety)
 - [ ] Stretch: Nouveau
+- [ ] `--target=vkms|i915|4080` flag: a single entry point selecting which
+      driver to fuzz, rather than separate manual configs per target (see
+      Future Work)
 - [ ] Responsible disclosure where applicable; final technical writeup
+
+---
+
+## Future work
+
+**Unified target selection.** Currently, switching between VKMS and a
+real-hardware target (i915, eventually the 4080 via Nouveau) means
+maintaining separate syzkaller configs, separate rootfs states, and
+separate operational-safety postures by hand. The plan is a single
+`--target` flag (e.g. `--target=vkms`, `--target=i915`, `--target=4080`)
+that selects the correct syzkaller config, kernel module set, and safety
+constraints (VM-contained vs. real-hardware-with-isolation) automatically
+— reducing the current manual, per-target setup to one command and
+removing an entire class of "wrong config for this target" mistakes.
 
 ---
 
