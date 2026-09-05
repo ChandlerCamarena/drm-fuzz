@@ -17,6 +17,7 @@
             # Kernel build toolchain
             gnumake
             gcc
+            glibc.static
             bc
             flex
             bison
